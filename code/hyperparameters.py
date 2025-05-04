@@ -16,5 +16,5 @@ BATCH_SIZE = 1
 LEARNING_RATE = 1e-5
 EPOCHS = 100000
 EVALUATION_INTERVAL = 1
-CHECKPOINT_TITLE = '-'
+CHECKPOINT_TITLE = 'checkpoints/duplicate_100_answers_2.pth'
 RUN = 'duplicate_100_answers'

@@ -6,6 +6,7 @@ from hyperparameters import (
     LEARNING_RATE,
     EPOCHS,
     EVALUATION_INTERVAL,
+    CHECKPOINT_TITLE,
     RUN
 )
 from transformers import AutoTokenizer
@@ -17,6 +18,21 @@ import os
 from tqdm import tqdm
 import json
 
+# REMOVE AFTER DEBUGGING
+def print_predictions(logits, length, mask, clues, answers):
+    for i in range(logits.shape[1]):
+        detokenized_clue = clue_tokenizer.decode(clues[i], skip_special_tokens=True)
+        detokenized_answer = answer_tokenizer.detokenize(answers[i][:length[i]])
+        predicted_answer_logits = logits[:, i, :]
+        predicted_answer = predicted_answer_logits.argmax(dim=1)
+        detokenized_predicted_answer = answer_tokenizer.detokenize(predicted_answer)[:length[i]]
+        string_list = list(detokenized_predicted_answer)
+        for i, value in enumerate(mask[i][:length[i]]):
+            if not value:
+                string_list[i] = '-'
+        detokenized_predicted_answer = ''.join(string_list)
+        print(f'\n {detokenized_clue}: {detokenized_answer} {detokenized_predicted_answer}')
+
 def process_batch(batch, model, criterion):
     clue_tokens = {
         'input_ids': batch['clue_input_ids'],
@@ -24,9 +40,16 @@ def process_batch(batch, model, criterion):
     }
     masked_answer_tokens = {
         'input_ids': batch['answer_input_ids'],
-        'attention_mask':  batch['answer_attention_mask']
+        'attention_mask': batch['answer_attention_mask']
     }
     logits = model(clue_tokens, masked_answer_tokens)
+    print_predictions( # REMOVE AFTER DEBUGGING
+        logits=logits,
+        length=(~batch['answer_attention_mask']).sum(dim=1),
+        mask=batch['masked_tokenized_answers_mask'],
+        clues=batch['clue_input_ids'],
+        answers=batch['tokenized_answers']
+    )
     logits = logits.permute(0, 2, 1).contiguous().view(-1, 26)
     labels = batch['tokenized_answers']
 
@@ -71,7 +94,7 @@ def train(train_dataloader, validation_dataloader, model, optimizer, current_epo
         train_dataloader.set_epoch(epoch)
         validation_dataloader.set_epoch(epoch)
 
-        for batch_number, batch in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{EPOCHS}", unit='batch')):
+        for batch_number, batch in enumerate(tqdm(train_dataloader, desc=f"Epoch {epoch}/{EPOCHS - 1}", unit='batch')):
             optimizer.zero_grad()
             loss = process_batch(
                 batch=batch,
@@ -81,26 +104,27 @@ def train(train_dataloader, validation_dataloader, model, optimizer, current_epo
             loss.backward()
             optimizer.step()
 
-            if batch_number == 0 and (epoch % EVALUATION_INTERVAL) == 0:
-                save_checkpoint(
-                    model=model,
-                    optimizer=optimizer,
-                    train_losses=train_losses, 
-                    validation_losses=validation_losses,
-                    current_epoch=epoch
-                )   
-                train_losses.append(round(loss.item(), 5))
-                validation_loss = evaluate(
-                    validation_dataloader=validation_dataloader,
-                    model=model, 
-                    criterion=criterion
-                )
-                validation_losses.append(round(validation_loss, 5))
-                with open("loss/training_loss_log.json", 'w') as f:
-                    json.dump(train_losses, f)
-                with open("loss/validation_loss_log.json", 'w') as f:
-                    json.dump(validation_losses, f)
-                print(f"Epoch {epoch + 1}/{EPOCHS}, Batch {batch_number + 1}, Train Loss: {loss.item()}, Validation Loss: {validation_loss}")
+        if epoch % EVALUATION_INTERVAL == 0:
+            train_losses.append(round(loss.item(), 5))
+            validation_loss = evaluate(
+                validation_dataloader=validation_dataloader,
+                model=model, 
+                criterion=criterion
+            )
+            validation_losses.append(round(validation_loss, 5))
+            with open("loss/training_loss_log.json", 'w') as f:
+                json.dump(train_losses, f)
+            with open("loss/validation_loss_log.json", 'w') as f:
+                json.dump(validation_losses, f)
+            print(f"Epoch {epoch}/{EPOCHS - 1}, Batch {batch_number + 1}, Train Loss: {loss.item()}, Validation Loss: {validation_loss}")
+
+            save_checkpoint(
+                model=model,
+                optimizer=optimizer,
+                train_losses=train_losses, 
+                validation_losses=validation_losses,
+                current_epoch=epoch
+            )
 
 def load_checkpoint(model, optimizer, filename):
     if os.path.isfile(filename):
@@ -108,7 +132,7 @@ def load_checkpoint(model, optimizer, filename):
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         print("Checkpoint found")
-        return checkpoint['current_epoch'], checkpoint['train_losses'], checkpoint['validation_losses']
+        return checkpoint['current_epoch'] + 1, checkpoint['train_losses'], checkpoint['validation_losses']
     else:
         print("No checkpoint found")
         return 0, [], []
@@ -122,7 +146,7 @@ def main():
     current_epoch, train_losses, validation_losses = load_checkpoint(
         model=model,
         optimizer=optimizer,
-        filename='checkpoint.pth'
+        filename=CHECKPOINT_TITLE
     )
 
     clues_split = load_from_disk(CLUES_SPLIT)
@@ -161,4 +185,6 @@ def main():
     )
 
 if __name__ == '__main__':
+    clue_tokenizer = AutoTokenizer.from_pretrained(ENCODER) # REMOVE AFTER DEBUGGING
+    answer_tokenizer = AnswerTokenizer() # REMOVE AFTER DEBUGGING
     main()

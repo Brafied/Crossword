@@ -9,9 +9,9 @@ import random
 class AnswerTokenizer:
     def __init__(self):
         # Define character-to-token and token-to-character mappings
-        characters = string.ascii_uppercase
-        self.character_to_token = {character: token for token, character in enumerate(characters)}
-        self.token_to_character = {token: character for token, character in enumerate(characters)}
+        self.characters = string.ascii_uppercase
+        self.character_to_token = {character: token for token, character in enumerate(self.characters)}
+        self.token_to_character = {token: character for token, character in enumerate(self.characters)}
         self.mask_token = 26
         self.pad_token = 27
 
@@ -35,10 +35,11 @@ class AnswerTokenizer:
             masked_tokenized_answers[i][mask_indices] = self.mask_token 
         masked_tokenized_answers_mask = (masked_tokenized_answers == self.mask_token)
 
-        return {'tokenized_answers': tokenized_answers,
-                'tokenized_answers_attention_mask': tokenized_answers_attention_mask,
-                'masked_tokenized_answers': masked_tokenized_answers,
-                'masked_tokenized_answers_mask': masked_tokenized_answers_mask
+        return {
+            'tokenized_answers': tokenized_answers,
+            'tokenized_answers_attention_mask': tokenized_answers_attention_mask,
+            'masked_tokenized_answers': masked_tokenized_answers,
+            'masked_tokenized_answers_mask': masked_tokenized_answers_mask
         }
 
     def detokenize(self, tokens):
